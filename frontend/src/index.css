@@ -1,0 +1,31 @@
+/* src/index.css — Global styles for Smart Attendance System */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Apply DM Sans as the default body font everywhere */
+body {
+  font-family: 'DM Sans', sans-serif;
+  @apply bg-canvas text-plum-950;
+}
+
+/* Apply Syne to all headings */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Syne', sans-serif;
+}
+
+/* Smooth scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f9f8ff;
+}
+::-webkit-scrollbar-thumb {
+  background: #c4b5fd;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #7c3aed;
+}
