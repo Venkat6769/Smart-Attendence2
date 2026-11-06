@@ -79,6 +79,18 @@ CREATE TABLE IF NOT EXISTS attendance (
 );
 
 -- ---------------------------------------------------------------
+-- SESSION_TOKENS
+-- Dynamic rotating tokens for anti-proxy QR attendance (refreshes every 5s)
+-- ---------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS session_tokens (
+  id            UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id    UUID          NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
+  token         VARCHAR(255)  UNIQUE NOT NULL,
+  expires_at    TIMESTAMPTZ   NOT NULL,
+  created_at    TIMESTAMPTZ   DEFAULT NOW()
+);
+
+-- ---------------------------------------------------------------
 -- INDEXES
 -- Speed up the most common queries in the application
 -- ---------------------------------------------------------------
@@ -91,6 +103,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token      ON attendance_sessions(token)
 CREATE INDEX IF NOT EXISTS idx_sessions_status     ON attendance_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_attendance_student  ON attendance(student_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_session  ON attendance(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_tokens_token      ON session_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_session_tokens_session_id ON session_tokens(session_id);
 
 -- ---------------------------------------------------------------
 -- SEED DATA

@@ -33,6 +33,60 @@ async function getCourses(req, res) {
 }
 
 /**
+ * closeSessionInternal — closes a session and auto-marks non-scanned students absent
+ */
+async function closeSessionInternal(sessionId, courseId) {
+  await pool.query(
+    "UPDATE attendance_sessions SET status = 'closed', closed_at = NOW() WHERE id = $1",
+    [sessionId]
+  );
+
+  const enrolledStudents = await pool.query(
+    'SELECT student_id FROM enrollments WHERE course_id = $1',
+    [courseId]
+  );
+
+  const presentStudents = await pool.query(
+    "SELECT student_id FROM attendance WHERE session_id = $1 AND status = 'present'",
+    [sessionId]
+  );
+
+  const presentIds = new Set(presentStudents.rows.map(r => r.student_id));
+
+  const absentStudents = enrolledStudents.rows.filter(
+    row => !presentIds.has(row.student_id)
+  );
+
+  for (const student of absentStudents) {
+    await pool.query(
+      `INSERT INTO attendance (student_id, session_id, status)
+       VALUES ($1, $2, 'absent')
+       ON CONFLICT (student_id, session_id) DO NOTHING`,
+      [student.student_id, sessionId]
+    );
+  }
+
+  return { absentMarked: absentStudents.length, presentCount: presentIds.size };
+}
+
+/**
+ * autoCloseExpiredSessions — automatically closes any active sessions whose 30m window has passed
+ */
+async function autoCloseExpiredSessions(courseId) {
+  try {
+    const expiredSessions = await pool.query(
+      "SELECT id, course_id FROM attendance_sessions WHERE course_id = $1 AND status = 'active' AND expires_at < NOW()",
+      [courseId]
+    );
+    for (const sess of expiredSessions.rows) {
+      await closeSessionInternal(sess.id, sess.course_id);
+    }
+  } catch (err) {
+    console.error('autoCloseExpiredSessions error:', err.message);
+  }
+}
+
+/**
  * startSession — creates a new attendance session for a course and returns the QR code.
  * The QR code encodes the unique session token.
  * Session expires 30 minutes from creation.
@@ -55,7 +109,10 @@ async function startSession(req, res) {
       return res.status(403).json({ error: 'Course not found or not assigned to you.' });
     }
 
-    // Check if there's already an active session for this course
+    // Auto-close any expired sessions for this course before checking active
+    await autoCloseExpiredSessions(course_id);
+
+    // Check if there's still a non-expired active session for this course
     const activeCheck = await pool.query(
       "SELECT id FROM attendance_sessions WHERE course_id = $1 AND status = 'active'",
       [course_id]
@@ -68,8 +125,9 @@ async function startSession(req, res) {
     }
 
     // Generate a unique token for this session
-    const token     = uuidv4();
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+    const token          = uuidv4();
+    const expiresAt      = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes session duration
+    const tokenExpiresAt = new Date(Date.now() + 15 * 1000);      // Valid for 15s (5s display + 10s grace period)
 
     // Insert the session into the database
     const sessionResult = await pool.query(
@@ -81,15 +139,25 @@ async function startSession(req, res) {
 
     const session = sessionResult.rows[0];
 
+    // Store initial token in session_tokens
+    await pool.query(
+      `INSERT INTO session_tokens (session_id, token, expires_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (token) DO NOTHING`,
+      [session.id, token, tokenExpiresAt]
+    );
+
     // Generate the QR code image as a base64 data URL
     const qrCodeDataUrl = await generateQRCode(token);
 
     res.status(201).json({
       data: {
         session,
-        qrCode:  qrCodeDataUrl,
-        course:  courseCheck.rows[0],
-        message: 'Session started. QR code is ready.',
+        qrCode:          qrCodeDataUrl,
+        token,
+        refreshInterval: 5,
+        course:          courseCheck.rows[0],
+        message:         'Session started. QR code is ready.',
       },
     });
   } catch (err) {
@@ -125,45 +193,13 @@ async function endSession(req, res) {
       return res.status(409).json({ error: 'This session is already closed.' });
     }
 
-    // Mark session as closed
-    await pool.query(
-      "UPDATE attendance_sessions SET status = 'closed', closed_at = NOW() WHERE id = $1",
-      [id]
-    );
-
-    // Get all enrolled students for this course
-    const enrolledStudents = await pool.query(
-      'SELECT student_id FROM enrollments WHERE course_id = $1',
-      [session.course_id]
-    );
-
-    // Get students who already scanned (have a 'present' record)
-    const presentStudents = await pool.query(
-      "SELECT student_id FROM attendance WHERE session_id = $1 AND status = 'present'",
-      [id]
-    );
-
-    const presentIds = new Set(presentStudents.rows.map(r => r.student_id));
-
-    // Auto-insert absent records for students who did not scan
-    const absentStudents = enrolledStudents.rows.filter(
-      row => !presentIds.has(row.student_id)
-    );
-
-    for (const student of absentStudents) {
-      await pool.query(
-        `INSERT INTO attendance (student_id, session_id, status)
-         VALUES ($1, $2, 'absent')
-         ON CONFLICT (student_id, session_id) DO NOTHING`,
-        [student.student_id, id]
-      );
-    }
+    const { absentMarked, presentCount } = await closeSessionInternal(id, session.course_id);
 
     res.json({
       data: {
         message:       'Session closed successfully.',
-        absentMarked:  absentStudents.length,
-        presentCount:  presentIds.size,
+        absentMarked,
+        presentCount,
       },
     });
   } catch (err) {
@@ -179,8 +215,11 @@ async function getCourseSessions(req, res) {
   const { courseId } = req.params;
 
   try {
+    // Auto-close any expired active sessions before querying
+    await autoCloseExpiredSessions(courseId);
+
     const result = await pool.query(
-      `SELECT s.id, s.session_date, s.status, s.expires_at, s.created_at, s.closed_at,
+      `SELECT s.id, s.token, s.session_date, s.status, s.expires_at, s.created_at, s.closed_at,
               COUNT(a.id) FILTER (WHERE a.status = 'present') AS present_count,
               COUNT(a.id) FILTER (WHERE a.status = 'absent')  AS absent_count
        FROM attendance_sessions s
@@ -428,13 +467,38 @@ async function getSessionQR(req, res) {
     }
 
     if (new Date() > new Date(session.expires_at)) {
+      await closeSessionInternal(session.id, session.course_id);
       return res.status(400).json({ error: 'This session has expired.' });
     }
 
-    // Re-generate the QR from the stored token
-    const qrCode = await generateQRCode(session.token);
+    // Generate fresh rotating token (valid for 15s: 5s display + 10s network grace period)
+    const newToken = uuidv4();
+    const tokenExpiresAt = new Date(Date.now() + 15 * 1000);
 
-    res.json({ data: { qrCode, session } });
+    await pool.query(
+      `INSERT INTO session_tokens (session_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [session.id, newToken, tokenExpiresAt]
+    );
+
+    await pool.query(
+      'UPDATE attendance_sessions SET token = $1 WHERE id = $2',
+      [newToken, session.id]
+    );
+
+    session.token = newToken;
+
+    // Generate fresh QR from the rotating token
+    const qrCode = await generateQRCode(newToken);
+
+    res.json({
+      data: {
+        qrCode,
+        token: newToken,
+        session,
+        refreshInterval: 5,
+      },
+    });
   } catch (err) {
     console.error('getSessionQR error:', err);
     res.status(500).json({ error: 'Failed to regenerate QR code.' });

@@ -29,12 +29,15 @@ app.use(cors({
       process.env.FRONTEND_URL || 'http://localhost:5173',
       'http://localhost:5173',
       'http://localhost:5174',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:5174',
     ];
 
-    // Allow any ngrok tunnel domain (covers .ngrok-free.dev, .ngrok-free.app, .ngrok.io etc.)
+    // Allow any localhost, 127.0.0.1, or ngrok origin
+    const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1');
     const isNgrok = origin.includes('ngrok');
 
-    if (allowed.includes(origin) || isNgrok) {
+    if (allowed.includes(origin) || isLocal || isNgrok) {
       return callback(null, true);
     }
 

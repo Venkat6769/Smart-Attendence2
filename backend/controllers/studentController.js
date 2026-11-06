@@ -42,25 +42,49 @@ async function scanQR(req, res) {
 
   try {
     // Check 1: Does a session with this token exist?
-    const sessionResult = await pool.query(
-      'SELECT * FROM attendance_sessions WHERE token = $1',
+    // Check both session_tokens (rotating 5s tokens) and attendance_sessions (direct token)
+    let session = null;
+    let tokenExpired = false;
+
+    const tokenLookup = await pool.query(
+      `SELECT s.*, st.expires_at AS token_expires_at
+       FROM session_tokens st
+       JOIN attendance_sessions s ON s.id = st.session_id
+       WHERE st.token = $1`,
       [token]
     );
 
-    if (sessionResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Invalid QR code. Session not found.' });
+    if (tokenLookup.rows.length > 0) {
+      session = tokenLookup.rows[0];
+      if (new Date() > new Date(session.token_expires_at)) {
+        tokenExpired = true;
+      }
+    } else {
+      // Fallback for direct token lookup on attendance_sessions
+      const sessionResult = await pool.query(
+        'SELECT * FROM attendance_sessions WHERE token = $1',
+        [token]
+      );
+      if (sessionResult.rows.length > 0) {
+        session = sessionResult.rows[0];
+        if (session.expires_at && new Date() > new Date(session.expires_at)) {
+          tokenExpired = true;
+        }
+      }
     }
 
-    const session = sessionResult.rows[0];
+    if (!session) {
+      return res.status(404).json({ error: 'Invalid QR code. Session not found.' });
+    }
 
     // Check 2: Is the session still active (not closed)?
     if (session.status !== 'active') {
       return res.status(400).json({ error: 'This session has already been closed.' });
     }
 
-    // Check 3: Has the QR code expired?
-    if (new Date() > new Date(session.expires_at)) {
-      return res.status(400).json({ error: 'This QR code has expired. Ask your lecturer for a new one.' });
+    // Check 3: Has the QR code or session expired?
+    if (tokenExpired || (session.expires_at && new Date() > new Date(session.expires_at))) {
+      return res.status(400).json({ error: 'This QR code has expired. Please scan the current QR code on the screen.' });
     }
 
     // Check 4: Is the student enrolled in this course?

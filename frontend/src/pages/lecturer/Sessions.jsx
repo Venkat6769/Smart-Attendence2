@@ -62,14 +62,21 @@ export default function Sessions() {
       // If there's an active session, automatically regenerate its QR code
       const active = all.find(s => s.status === 'active');
       if (active) {
-        setActiveSession(active);
-        try {
-          // Fetch the QR from the backend using the stored session token
-          const qrRes = await api.get(`/api/sessions/${active.id}/qr`);
-          setQrCode(qrRes.data.data.qrCode);
-        } catch {
-          // Session may have expired — leave qrCode empty, show fallback UI
+        // If expired, clear activeSession so "Start Session" button is immediately available
+        const isExpired = new Date(active.expires_at) <= new Date();
+        if (isExpired) {
+          setActiveSession(null);
           setQrCode('');
+        } else {
+          setActiveSession(active);
+          try {
+            // Fetch the QR from the backend using the stored session token
+            const qrRes = await api.get(`/api/sessions/${active.id}/qr`);
+            setQrCode(qrRes.data.data.qrCode);
+          } catch {
+            setActiveSession(null);
+            setQrCode('');
+          }
         }
       } else {
         setActiveSession(null);
@@ -111,13 +118,32 @@ export default function Sessions() {
       setActiveSession(session);
       setQrCode(newQR);
       setSuccess('Session started! Students can now scan the QR code.');
-      fetchSessions();
+      // Refresh session history list silently without re-running fetchSessions()
+      const listRes = await api.get(`/api/sessions/${selectedCourse}/list`);
+      setSessions(listRes.data.data);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to start session.');
     } finally {
       setStarting(false);
     }
   }
+
+  // Refresh the rotating QR code every 5 seconds
+  const handleRefreshQR = useCallback(async () => {
+    if (!activeSession) return;
+    try {
+      const res = await api.get(`/api/sessions/${activeSession.id}/qr`);
+      const { qrCode: newQR, token: newToken } = res.data.data;
+      setQrCode(newQR);
+      if (newToken) {
+        setActiveSession((prev) => (prev ? { ...prev, token: newToken } : null));
+      }
+    } catch (err) {
+      if (err.response?.status === 400 || err.response?.status === 404) {
+        fetchSessions();
+      }
+    }
+  }, [activeSession, fetchSessions]);
 
   async function handleEndSession() {
     if (!activeSession) return;
@@ -226,13 +252,25 @@ export default function Sessions() {
               expiresAt={activeSession.expires_at}
               courseCode={courseObj?.code}
               isClosed={false}
+              token={activeSession.token}
+              onRefresh={handleRefreshQR}
+              refreshInterval={5}
             />
           </div>
         ) : activeSession && !qrCode ? (
-          // Active session found but QR is still loading or has expired
+          // Active session found but QR has expired or is unavailable
           <div className="text-center py-8">
-            <div className="w-8 h-8 border-4 border-violet-xlight border-t-violet rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-sm text-gray-500">Loading QR code...</p>
+            <h2 className="font-heading text-lg font-semibold text-plum-950 mb-2">Previous Session Expired</h2>
+            <p className="text-sm text-gray-500 mb-6">
+              This session has expired. Close it to finalize attendance and start a new session.
+            </p>
+            <button
+              onClick={handleEndSession}
+              disabled={ending}
+              className="bg-rose-500 text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-rose-600 disabled:opacity-60 transition-colors"
+            >
+              {ending ? 'Closing...' : 'Close & Finalize Session'}
+            </button>
           </div>
         ) : (
           // No active session

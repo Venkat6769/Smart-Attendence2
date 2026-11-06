@@ -1,11 +1,12 @@
 # Smart Attendance System
 
-A full-stack QR code-based university attendance management system built with React, Node.js/Express, and Supabase (PostgreSQL).RwQv6qTMRloiuyMX password
+A full-stack QR code-based university attendance management system built with React, Node.js/Express, and PostgreSQL / Supabase.
 
 ---
 
 ## Features
 
+- **Dynamic Rotating QR Codes**: Anti-proxy security with QR codes that dynamically rotate every 5 seconds
 - **Lecturers** generate time-limited QR codes for class sessions
 - **Students** scan QR codes via browser camera to mark attendance
 - Auto-marks absent students when a session is closed

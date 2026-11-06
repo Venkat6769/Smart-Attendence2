@@ -50,8 +50,13 @@ export default function QRScanner({ onScan, disabled }) {
       () => {} // ignore per-frame "no QR found" errors
     )
     .then(() => {
+      if (!isMounted) {
+        html5Qrcode.stop().catch(() => {});
+        return;
+      }
       isRunning = true;
-      if (isMounted) { setCameraOn(true); setError(null); }
+      setCameraOn(true);
+      setError(null);
     })
     .catch((err) => {
       isRunning = false;

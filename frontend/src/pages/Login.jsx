@@ -12,7 +12,7 @@ import api from '../api/axios';
 import { KeyRound, Radio, BarChart2, AlertTriangle, FileText } from 'lucide-react';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, refreshUser } = useAuth();
   const navigate  = useNavigate();
 
   const [form,    setForm]    = useState({ email: '', password: '' });
@@ -65,6 +65,11 @@ export default function Login() {
         currentPassword: changeForm.currentPassword,
         newPassword:     changeForm.newPassword,
       });
+
+      // Refresh user profile so must_change_password is updated
+      if (refreshUser) {
+        await refreshUser();
+      }
 
       // After changing password, redirect to dashboard
       const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -229,6 +234,37 @@ export default function Login() {
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+
+          {/* Quick Demo Credentials */}
+          <div className="mt-6 pt-5 border-t border-gray-100">
+            <p className="text-xs text-gray-500 mb-2 font-medium text-center">Default Accounts (Click to auto-fill):</p>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setForm({ email: 'admin@university.edu', password: 'Admin@123' })}
+                className="text-center p-2 rounded-lg border border-violet-xlight hover:bg-violet-xlight/50 transition-colors text-left"
+              >
+                <div className="text-xs font-semibold text-plum-950">Admin</div>
+                <div className="text-[10px] text-gray-400 truncate">Admin@123</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ email: 'lecturer@university.edu', password: 'Lecturer@123' })}
+                className="text-center p-2 rounded-lg border border-violet-xlight hover:bg-violet-xlight/50 transition-colors text-left"
+              >
+                <div className="text-xs font-semibold text-plum-950">Lecturer</div>
+                <div className="text-[10px] text-gray-400 truncate">Lecturer@123</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ email: 'student@university.edu', password: 'Student@123' })}
+                className="text-center p-2 rounded-lg border border-violet-xlight hover:bg-violet-xlight/50 transition-colors text-left"
+              >
+                <div className="text-xs font-semibold text-plum-950">Student</div>
+                <div className="text-[10px] text-gray-400 truncate">Student@123</div>
+              </button>
+            </div>
+          </div>
 
           <p className="text-center text-xs text-gray-400 mt-8">
             Smart Attendance System · University Edition
