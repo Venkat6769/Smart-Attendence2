@@ -33,6 +33,9 @@ export function AuthProvider({ children }) {
     setLoading(true);
     try {
       const res = await api.post('/api/auth/login', { email, password });
+      if (!res.data || !res.data.data) {
+        throw new Error('API server unreachable: The server returned an HTML page instead of JSON API response. If deploying on Vercel, please set VITE_API_URL in Vercel settings to your backend URL.');
+      }
       const { token: newToken, user: newUser } = res.data.data;
 
       // Persist in localStorage so the session survives page refreshes

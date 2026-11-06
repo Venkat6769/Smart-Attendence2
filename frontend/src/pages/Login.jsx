@@ -42,7 +42,17 @@ export default function Login() {
 
       redirectByRole(user.role);
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed. Please try again.');
+      console.error('Login error:', err);
+      const serverMsg = err.response?.data?.error;
+      if (serverMsg) {
+        setError(serverMsg);
+      } else if (err.message && err.message.includes('API server unreachable')) {
+        setError(err.message);
+      } else if (!err.response) {
+        setError('Cannot connect to backend server. If running locally, open http://localhost:5173. If using Vercel, ensure your backend is deployed and VITE_API_URL is configured in Vercel settings.');
+      } else {
+        setError('Login failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

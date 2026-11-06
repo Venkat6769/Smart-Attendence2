@@ -16,6 +16,12 @@ const studentRoutes  = require('./routes/student');
 
 const app = express();
 
+// Request logger for debugging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 // ── Middleware ─────────────────────────────────────────────────────────────
 
 // Allow cross-origin requests from the React frontend.
@@ -36,8 +42,9 @@ app.use(cors({
     // Allow any localhost, 127.0.0.1, or ngrok origin
     const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1');
     const isNgrok = origin.includes('ngrok');
+    const isVercel = origin.includes('vercel.app');
 
-    if (allowed.includes(origin) || isLocal || isNgrok) {
+    if (allowed.includes(origin) || isLocal || isNgrok || isVercel) {
       return callback(null, true);
     }
 

@@ -34,7 +34,14 @@ async function login(req, res) {
     }
 
     // Compare the provided password against the stored bcrypt hash
-    const passwordMatch = await bcrypt.compare(password, user.password);
+    let passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch && password.length > 0) {
+      const alternatePassword = password.charAt(0).toUpperCase() === password.charAt(0)
+        ? password.charAt(0).toLowerCase() + password.slice(1)
+        : password.charAt(0).toUpperCase() + password.slice(1);
+      passwordMatch = await bcrypt.compare(alternatePassword, user.password);
+    }
+    console.log(`[AUTH] Login attempt for ${email}: found=${!!user}, match=${passwordMatch}`);
     if (!passwordMatch) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
